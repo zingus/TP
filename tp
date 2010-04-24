@@ -1,0 +1,424 @@
+#!/usr/bin/env php
+<?php
+
+//Date: Apr 13 2010
+//Author: Zingus J. Rinkle
+//Version: 0.8 thundergroove
+
+// Define class TP only if it doesn't exist already.
+// Permits partial forms of self-testing.
+
+/* TODO permit full self-testing replacing everywhere in the code
+        the TP word (and constant string) with "TP".md5(rand())
+ */
+
+if(!class_exists('TP')) {
+  class TP
+  {
+
+    function TP () {
+      $this->instance_name='TP'.sha1(rand());
+    }
+    // define test commands
+    function cmd_ok($expr)
+    {
+      /* Synopsis: //ok <assertion> #<label> */
+      $this->println('test');
+      return "/* $expr */";
+      // FIXME not working right now!
+    }
+    function scmd_begin($expr)
+    {
+      /* Synopsis: //begin {{skip|todo|critical} , }... */
+      $args=func_get_args();
+
+      echo "flags\n";
+      var_export($args);
+      echo "\n";
+      // FIXME not working right now!
+    }
+    function scmd_end($expr)
+    {
+      /* Synopsis: //end [[skip|todo|critical] , ]... */
+      // FIXME not working right now!
+    }
+    function cmd_is($expression,$value)
+    {
+      /* Synopsis: //is <expression>,<value> #<label> */
+      $ok=($expression==$value);
+      if($this->negate) $ok=!$ok;
+      return $this->cmd_ok($ok);
+      //FIXME print more info to ease debugging on failure
+    }
+    function cmd_isnt($expr,$check_value)
+    {
+      /* Synopsis: //isnt <expression>,<value> #<label> */
+      $this->negate=1;
+      return $this->cmd_is($expression,$value);
+      //TODO  add //is_not alias?
+    }
+    function cmd_isa($expression,$class)
+    {
+      /* Synopsis: //isa <expression>,<class> #<label> */
+      return $this->cmd_ok(is_a($expression,$class));
+      //FIXME print more info to ease debugging on failure  
+      
+      //TODO add //is_a alias?
+      //TODO add //isnota and/or is_not_a and/or not_isa negations?
+    }
+    function cmd_like($expression,$regexp)
+    {
+      /* Synopsis: //like <expression>,<regexp> #<label> */
+      $ok=preg_match($regexp,$expression);
+      if($this->negate) $ok=!$ok;
+      return $this->cmd_ok($ok);
+      //FIXME print more info to ease debugging on failure  
+
+      /*TODO  Add //match to match with perl regexps and
+              leave //like to fnmatch results?
+              How about sql-style like syntax? (fnmatch with "%" wildcards)
+       */
+    }
+    function cmd_notlike($expr,$check_value)
+    {
+      /* Synopsis: //notlike <expression>,<regexp> #<label> */
+      $this->negate=1;
+      return $this->cmd_like($ok);
+      //TODO add //not_like and/or likenot and/or like_not aliases?
+
+      /*TODO add a //not <command> command?
+             or a //not<command> hardcoded convention?
+       */
+    }
+    function cmd_plan($number)
+    {
+      /* Synopsis: //plan <number of planned tests> */
+    }
+    
+    // I am Cornholio! The almighty Cornholio! I need TP! TP for my bunghole!
+
+    function tokenize_raw_php()
+    {
+      /* tokenizes "//" and multiline comments
+         -- clusters anything else as T_INLINE_HTML tokens
+       */
+
+      $len=count($this->tokens);
+      for($i=0;$i<$len;$i++) {
+        @list($t,$v,$l)=$this->tokens[$i];
+        
+        //var_export($t); echo "$\n";
+        //var_export($v); echo "$\n";
+        // redefine type on special comments
+        if($t==T_COMMENT) {
+          $v0=substr($v,0,2);
+          if($v0=='//' or $v0=='/*') $t=$v0;
+        }
+
+        switch($t) {
+        case '//':
+          //get command name
+          $v1=substr($v,2);
+          $cmd_name=strtok($v1," \t\r\n");
+          if($cmd_type=$this->command_type($cmd_name)) {
+            /// remove cmd_name from value
+            $v1=trim(substr($v1,strlen($cmd_name)));
+            // prepare to tokenize command
+            $cmd="<?php $v1";
+            $cmd_tokens=token_get_all($cmd);
+            // remote "<?php" token and insert a meaningful leader
+            $cmd_tokens[0]=array('//',array('name'=>$cmd_name,'type'=>$cmd_type));
+            $cmd_tokens[]=array('nl','');
+            // splice it in the main collection
+            array_splice($this->tokens,$i,1,$cmd_tokens);
+            // update indices and loop stuff
+            $i+=count($cmd_tokens)-1;
+            $len=count($this->tokens);
+            break;
+          } else {
+            $this->tokens[$i]=array(T_INLINE_HTML,$v,$l);
+          }
+          break;
+        case '/*':
+          // put '/*' in place of T_COMMENT to help in later resolving
+          $this->tokens[$i][0]='/*';
+          break;
+        default:
+          $this->tokens[$i]=array(T_INLINE_HTML,($v===null or $v==='')?$t:$v,$l);
+          break;
+        }
+      }
+    }
+    function normalize_tokens()
+    {
+      // normalize keys
+      array_splice($this->tokens,0,0);
+
+      $len=count($this->tokens);
+
+      @list($t0,$v0,$l0)=$this->tokens[0];
+      for($i=1;$i<$len;$i++) {
+        
+        if(is_null($this->tokens[$i]))
+          unset($this->tokens[$i]);
+          
+        @list($t,$v,$l)=$this->tokens[$i];
+        
+        if($t==$t0 and $t==T_INLINE_HTML) {
+          //var_export($v0.$v); echo "\n\n";
+          $v0.=$v;
+          unset($this->tokens[$i-1]);
+          $this->tokens[$i]=array(T_INLINE_HTML,$v0,$l0);
+        } else {
+          $v0=$v;
+        }
+        $t0=$t; $l0=$l;
+      }
+
+      // normalize keys (again!!)
+      array_splice($this->tokens,0,0);
+    }
+    function tokenize_dots()
+    {
+      // clusters "..." tokens together
+      $len=count($this->tokens);
+      for($i;$i<$len-2;$i++) {
+        // identify three consecutive '.' tokens
+        $a=&$this->tokens[$i];
+        $b=&$this->tokens[$i+1];
+        $c=&$this->tokens[$i+2];
+        if($a=='.' and $b=='.' and $c=='.') {
+            $a=array('...','...');
+            $b=null;
+            $c=null;
+        } 
+        
+        // identify two consecutive '.' tokens followed by a '.=' operator
+        $d=&$this->tokens[$i+3];
+        if($a=='.' and $b=='.' and $c[1]=='.=') {
+            if($c[1]=='.='){ 
+              if($d=='=') $d=array(T_IS_EQUAL,'==',@$d[3]);
+              elseif($d[1]=='==') $d=array(T_IS_IDENTICAL,'===',@$d[3]);
+            }
+            $a=array('...','...');
+            $b=null;
+            $c=null;
+        }
+      }
+    }
+    function tokenize_remarkable_commas()
+    {
+      $level=0;
+      $len=count($this->tokens);
+      for($i=0;$i<$len;$i++) {
+        @list($t,$v,$l)=$this->tokens[$i];
+        switch($t){
+        case '(':
+          $level++;
+          break;
+        case ')':
+          $level--;
+          break;
+        case ',':
+          if(!$level) $this->tokens[$i]=array('_,_',',');
+        }
+      }
+    }
+    function parse_commands()
+    {
+      $len=count($this->tokens);
+      for($i=0;$i<$len;$i++) {
+        @list($t,$v,$l)=$this->tokens[$i];
+        switch($t) {
+          case T_INLINE_HTML:
+          case '/*':
+            continue;
+            break;
+          case '//':
+            $cmd_attributes=(array)$v;
+            $cmd_index=$i;
+            break;
+          case 'nl':
+            $this->tokens[$cmd_index]=array('//',$cmd_attributes);
+            $this->tokens[$i]=null;
+            break;
+          case T_COMMENT:
+            $cmd_attributes['label']=$label=trim(substr($v,1));
+            $ok=preg_match('/^\s*(skip|critical|todo)\s*:?\s*(.*)/i',$label,$m);
+            if($ok) {
+              list(,$priority,$label)=$m;
+            }
+            $cmd_attributes['label']=$label;
+            $cmd_attributes['priority']=$priority?strtolower($priority):'';
+            $this->tokens[$i]=null;
+            break;
+          default: 
+            $cmd_attributes['args'].=$v?$v:$t;
+            $this->tokens[$i]=null;
+        }
+      }
+    }
+
+    function perform_substitution()
+    {
+      $len=count($this->tokens);
+      for($i=0;$i<$len;$i++) {
+        @list($t,$v,$l)=$this->tokens[$i];
+        if($t=='//') {
+          $label=addslashes($v['label']);
+
+          $args=$v['args'];
+          if($v['type']=='scmd') {
+            $args=addslashes($args);
+            $args=preg_split('/\s*,\s*|\s+/',trim($args));
+            $args="'".implode("','",$args)."'";
+          }
+          $func="{$v['type']}_{$v['name']}";
+          $var=$this->instance_name;
+          
+          $priority=addslashes($v['priority']);
+  
+          if($priority)
+            $priority="'$priority'";
+          else
+            $priority="\$${var}->default_priority";
+
+          //$code="TP::execute_command_function('{$this->instance_name}','{$v['priority']}','$label','$func',array($args));\n";
+          $code ="\$${var}=\$GLOBALS['${var}'];";
+          $code.="\$${var}->label='${label}';";
+          $code.="\$${var}->priority=${priority};";
+          $code.="\$${var}->${func}(${args});";
+          $code.="\n";
+          $this->tokens[$i]=array('//',$code);
+        }
+      }
+    }
+    function perform_substitution_1()
+    {
+      $len=count($this->tokens);
+      for($i=0;$i<$len;$i++) {
+        @list($t,$v,$l)=$this->tokens[$i];
+        if($t=='//') {
+          $label=addslashes($v['label']);
+
+          $args=$v['args'];
+          if($v['type']=='scmd') {
+            $args=addslashes($args);
+            $args=preg_split('/\s*,\s*|\s+/',trim($args));
+            $args="'".implode("','",$args)."'";
+          }
+          $func="{$v['type']}_{$v['name']}";
+          $code="TP::execute_command_function('{$this->instance_name}','{$v['priority']}','$label','$func',array($args));\n";
+          $this->tokens[$i]=array('//',$code);
+        }
+      }
+    }
+    function serialize_tokens()
+    {
+      $ret='';
+      foreach($this->tokens as $tok) {
+        $ret.=($tok[1]==='' or $tok[1]===null)?$tok:$tok[1];
+      } 
+      return $ret; 
+    }
+    function resolve_dots()
+    {
+      $len=count($this->tokens);
+      $pending_dots=array();
+      for($i;$i<$len-2;$i++) {
+        @list($t,$v,$l)=$this->tokens[$i];
+        if($t=='...')
+          $pending_dots[]=$i;
+        if($t=='/*' and $pending_dots) {
+          $j=array_shift($pending_dots);
+          $v1="'".addslashes(substr($v,2,-2))."'";
+          $this->tokens[$j][0]=T_CONSTANT_ENCAPSED_STRING;
+          $this->tokens[$j][1]=$v1;
+        }
+      } 
+    }
+    function command_type($word)
+    {
+      if($word) {
+        if(method_exists($this,"cmd_$word")) return 'cmd';
+        if(method_exists($this,"scmd_$word")) return 'scmd';
+      }
+      return null;
+    }
+    function run($filename)
+    {
+      $TP=new TP();
+      $GLOBALS[$TP->instance_name]=$TP;
+      $TP->test($filename);
+      //unset($TP);
+    }
+
+    function test($filename)
+    {
+      if(!file_exists($filename)) die("tp: $filename : File not found\n");
+      $this->tokens=token_get_all(file_get_contents($filename));
+      
+      $this->tokenize_raw_php();
+      $this->tokenize_dots();
+      $this->tokenize_remarkable_commas();
+      $this->resolve_dots();
+      $this->parse_commands();
+      $this->normalize_tokens();
+      $this->perform_substitution();
+      //var_export($this->tokens); exit;
+      $code=$this->serialize_tokens();
+      //file_put_contents('/tmp/eval.php',$code);
+      ob_start(array($this,'output_filter'));
+      eval("?>$code");
+      ob_end_flush();
+    }
+    function output_filter($data)
+    {
+      /*  output_filter is an ob_start() filter: it outputs only
+          lines starting with the tag $this->instance_name (after removing it)
+       */
+      $cutlen=strlen($this->instance_name)+1;
+      $lines=split("\n",$data);
+      foreach($lines as $k=>$v) {
+        if(strtok($v," \n\r\n")==$this->instance_name)
+          $lines[$k]=substr($v,$cutlen);
+        else
+          unset($lines[$k]);
+      }
+      return implode("\n",$lines)."\n";
+      /* FIXME doesn't handle correctly output chunking, if a
+         tagged line starts in a chunk and ends in another the
+         second half of it is ignored */
+    }
+    function println($data)
+    {
+      echo "{$this->instance_name} $data\n";
+    }
+  }
+
+    //main
+    $args=array_slice($argv,1);
+    foreach($args as $fn) {
+      TP::run($fn);
+    }
+
+  }
+
+  //begin todo
+  //ok false # skip: testing falsity
+  //ok null  # this can't avoid to fail
+  //end
+
+  //ok tautology
+  //ok 123 # I has a number!!!
+
+  //ok function_exists("ninja_library") # CRITICAL run for your lives if this fails
+
+  //begin todo
+  //ok true==1 # again, run for your lives
+  //end
+
+  //ok ...==100 # Testing "..." resolution
+  /*100*/
+
+  //is pow(10,2),100 # Testing "is" and comma parsing
