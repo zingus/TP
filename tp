@@ -367,10 +367,11 @@ if(!class_exists('TP')) {
       $this->perform_substitution();
       //var_export($this->tokens); exit;
       $code=$this->serialize_tokens();
-      //file_put_contents('/tmp/eval.php',$code);
-      ob_start(array($this,'output_filter'));
+      $this->_out=fopen('php://stdout','w');
+      ob_start();
       eval("?>$code");
-      ob_end_flush();
+      ob_end_clean();
+      fclose($this->_out);
     }
     function output_filter($data)
     {
@@ -392,7 +393,7 @@ if(!class_exists('TP')) {
     }
     function println($data)
     {
-      echo "{$this->instance_name} $data\n";
+      fwrite($this->_out,"$data\n");
     }
   }
 
