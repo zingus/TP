@@ -293,26 +293,6 @@ if(!class_exists('TP')) {
         }
       }
     }
-    function perform_substitution_1()
-    {
-      $len=count($this->tokens);
-      for($i=0;$i<$len;$i++) {
-        @list($t,$v,$l)=$this->tokens[$i];
-        if($t=='//') {
-          $label=addslashes($v['label']);
-
-          $args=$v['args'];
-          if($v['type']=='scmd') {
-            $args=addslashes($args);
-            $args=preg_split('/\s*,\s*|\s+/',trim($args));
-            $args="'".implode("','",$args)."'";
-          }
-          $func="{$v['type']}_{$v['name']}";
-          $code="TP::execute_command_function('{$this->instance_name}','{$v['priority']}','$label','$func',array($args));\n";
-          $this->tokens[$i]=array('//',$code);
-        }
-      }
-    }
     function serialize_tokens()
     {
       $ret='';
