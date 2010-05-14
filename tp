@@ -23,9 +23,34 @@ if(!class_exists('TP')) {
     function cmd_ok($expr)
     {
       /* Synopsis: //ok <assertion> #<label> */
-      $this->println("xxx $expr");
-      return "/* $expr */";
-      // FIXME not working right now!
+      $ok="ok";
+      if(!$expr) {
+        $ok = "not ok";
+      }
+      
+      $this->num++;
+      
+      // write message $msg
+
+      $msg="$ok {$this->num}";
+      // append label
+      if($this->label) $msg.=" - {$this->label}";
+      // append directive
+      if($this->priority && $this->priority!='critical') {
+        $msg .= ' # '.strtoupper($this->priority);
+        // append directive description (reason)
+        if($this->reason) $msg.=" {$this->reason}";
+        // FIXME cannot fetch reason?
+      }
+      $this->println($msg);
+     
+      // bail out if needed
+      if($this->priority=='critical' && !$expr) {
+        $this->println("Bail out!");
+        exit(1);
+      }
+
+      // FIXME unimplemented directive_description
     }
     function scmd_begin($expr)
     {
@@ -244,11 +269,19 @@ if(!class_exists('TP')) {
             break;
           case T_COMMENT:
             $cmd_attributes['label']=$label=trim(substr($v,1));
-            $ok=preg_match('/^\s*(skip|critical|todo)\s*:?\s*(.*)/i',$label,$m);
+            $ok=preg_match('/^\s*(skip|critical|todo)\s*:?\s*(.*?)(?:\s*-\s*(.*))$/i',$label,$m);
             if($ok) {
-              list(,$priority,$label)=$m;
+              list(,$priority,$label1,$label2)=$m;
+              if(!$label2) {
+                $label=$label1;
+                $reason='';
+              } else {
+                $label=$label2;
+                $reason=$label1;
+              }
             }
             $cmd_attributes['label']=$label;
+            $cmd_attributes['reason']=$reason;
             $cmd_attributes['priority']=$priority?strtolower($priority):'';
             $this->tokens[$i]=null;
             break;
@@ -286,6 +319,7 @@ if(!class_exists('TP')) {
           //$code="TP::execute_command_function('{$this->instance_name}','{$v['priority']}','$label','$func',array($args));\n";
           $code ="\$${var}=\$GLOBALS['${var}'];";
           $code.="\$${var}->label='${label}';";
+          $code.="\$${var}->reason='${reason}';";
           $code.="\$${var}->priority=${priority};";
           $code.="\$${var}->${func}(${args});";
           $code.="\n";
@@ -368,7 +402,7 @@ if(!class_exists('TP')) {
   }
 
   //begin todo
-  //ok false # skip: testing falsity
+  //ok false # skip supposed to fail - testing falsity
   //ok null  # this can't avoid to fail
   //end
 
