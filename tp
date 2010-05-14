@@ -40,7 +40,7 @@ if(!class_exists('TP')) {
         $msg .= ' # '.strtoupper($this->priority);
         // append directive description (reason)
         if($this->reason) $msg.=" {$this->reason}";
-        // FIXME cannot fetch reason?
+        // FIXME cannot fetch reason? (directive description)
       }
       $this->println($msg);
      
@@ -50,7 +50,6 @@ if(!class_exists('TP')) {
         exit(1);
       }
 
-      // FIXME unimplemented directive_description
     }
     function scmd_begin($expr)
     {
